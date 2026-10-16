@@ -1,0 +1,24 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {webcrypto} from 'node:crypto';
+import {cardValue,sumCards,wildcard,changeRequest,newMatch,blankRound,saveRound,ranking,parseData,initialData,Player,Rank} from '../lib/game';
+if(!globalThis.crypto)Object.defineProperty(globalThis,'crypto',{value:webcrypto});
+const players:Player[]=[{id:'a',name:'Ana'},{id:'b',name:'Bia'}];
+function fullMatch(){let m=newMatch(players);for(let n=1;n<=7;n++){const r=blankRound(m,players);r.winnerPlayerId='a';r.results[1].points=10;m=saveRound(m,r,players)}return m}
+test('Cartas de 2 a 10 valem o número',()=>{for(let n=2;n<=10;n++)assert.equal(cardValue(String(n) as Rank),n)});
+test('J, Q e K valem 10',()=>{for(const r of ['J','Q','K'] as Rank[])assert.equal(cardValue(r),10)});
+test('Ás vale 15',()=>assert.equal(cardValue('A'),15));
+test('Coringa tradicional vale 10',()=>assert.equal(cardValue('Joker'),10));
+test('Coringa especial mantém o valor original',()=>{const w=wildcard('8','♥');assert.deepEqual(w.suits,['♠','♣']);assert.equal(w.rank,'9');assert.equal(cardValue(w.rank),9);assert.equal(wildcard('K','♠').rank,'A');assert.deepEqual(wildcard('K','♠').suits,['♥','♦'])});
+test('Calculadora soma cartas',()=>assert.equal(sumCards(['A','J','2','Joker']),37));
+test('Vencedor recebe -20 automaticamente',()=>{const m=newMatch(players),r=blankRound(m,players);r.winnerPlayerId='a';r.results[0].points=99;assert.equal(saveRound(m,r,players).rounds[0].results[0].points,-20)});
+test('Pedidos limitados a 7 e nunca negativos',()=>{assert.equal(changeRequest(6,1),7);assert.throws(()=>changeRequest(7,1));assert.throws(()=>changeRequest(0,-1));assert.equal(changeRequest(7,-1),6)});
+test('Nova partida zera pedidos',()=>{const a=newMatch(players);a.requests.a=7;const b=newMatch(players);assert.equal(b.requests.a,0);assert.notEqual(a.id,b.id)});
+test('Ranking oculto durante partida',()=>assert.deepEqual(ranking(players,[newMatch(players)],false),[]));
+test('Revela ranking depois de exatamente 7 rodadas',()=>{let m=newMatch(players);for(let n=1;n<=7;n++){const r=blankRound(m,players);r.winnerPlayerId='a';m=saveRound(m,r,players);assert.equal(m.status,n===7?'complete':'active')}assert.equal(ranking(players,[m],m.status==='complete')[0].points,-140);const r=blankRound(m,players,8);r.winnerPlayerId='a';assert.throws(()=>saveRound(m,r,players))});
+test('Soma múltiplas partidas e conta vitórias',()=>{const list=ranking(players,[fullMatch(),fullMatch()],true);assert.equal(list[0].points,-280);assert.equal(list[0].matchWins,2);assert.equal(list[1].points,140)});
+test('Empates compartilham posição',()=>{const m=fullMatch();m.rounds.forEach(r=>r.results.forEach(x=>x.points=10));const list=ranking(players,[m],true);assert.deepEqual(list.map(p=>p.place),[1,1]);assert.deepEqual(list.map(p=>p.matchWins),[1,1])});
+test('Editar rodada recalcula totais, sem duplicar',()=>{const m=fullMatch();const r=structuredClone(m.rounds[2]);r.results[1].points=55;const edited=saveRound(m,r,players);assert.equal(edited.rounds.length,7);assert.equal(ranking(players,[edited],true)[1].points,115);assert.equal(edited.status,'complete')});
+test('Restaura backup com dados salvos',()=>{const d={...initialData,activeId:'c',championships:[{id:'c',name:'Teste',players,matches:[fullMatch()],status:'complete' as const,createdAt:new Date().toISOString()}]};assert.deepEqual(parseData(JSON.stringify(d)),JSON.parse(JSON.stringify(d)))});
+test('Rejeita backup inválido e pedidos fora do limite',()=>{assert.throws(()=>parseData('{"version":2}'));const m=fullMatch();m.requests.a=8;assert.throws(()=>parseData(JSON.stringify({...initialData,championships:[{id:'c',name:'Teste',players,matches:[m],status:'complete'}]})))});
+test('Valida vencedor, participantes e pontos',()=>{const m=newMatch(players),r=blankRound(m,players);assert.throws(()=>saveRound(m,r,players));r.winnerPlayerId='a';r.results[1].points=-1;assert.throws(()=>saveRound(m,r,players));r.results[1].points=1.5;assert.throws(()=>saveRound(m,r,players));r.results[1].points=Infinity;assert.throws(()=>saveRound(m,r,players))});
